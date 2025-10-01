@@ -4,6 +4,7 @@ from einops import einsum
 import contextlib
 import math
 import logging
+import gc
 import argparse
 import statistics
 import timeit
@@ -243,6 +244,16 @@ def main():
                     size_name, context_length, mode, rec["mean_s"], rec["std_s"],
                     (rec["peak_mem_mb"] if rec["peak_mem_mb"] is not None else float("nan")),
                 )
+                # Cleanup cached GPU memory to avoid fragmentation and cumulative growth
+                if torch.cuda.is_available():
+                    try:
+                        torch.cuda.synchronize()
+                        torch.cuda.empty_cache()
+                        if hasattr(torch.cuda, "ipc_collect"):
+                            torch.cuda.ipc_collect()
+                    except Exception:
+                        pass
+                gc.collect()
 
     df = pd.DataFrame.from_records(records)
     df = df[
