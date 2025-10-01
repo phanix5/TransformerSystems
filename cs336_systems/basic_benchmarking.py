@@ -3,6 +3,7 @@ from cs336_basics.nn_utils import softmax
 from einops import einsum
 import contextlib
 import math
+import logging
 import argparse
 import statistics
 import timeit
@@ -19,6 +20,8 @@ MODEL_SIZES = {
     "xl":     dict(d_model=1600, d_ff=6400,  num_layers=48, num_heads=25),
     "2.7B":   dict(d_model=2560, d_ff=10240, num_layers=32, num_heads=32),
 }
+
+logger = logging.getLogger("cs336_systems.basic_benchmarking")
 
 
 def _get_nvtx_ctx(use_nvtx: bool, name: str):
@@ -94,6 +97,7 @@ def benchmark_once(
     device_str: str | None,
     lr: float,
     use_nvtx: bool,
+    log_interval: int,
 ):
     device = (
         torch.device(device_str)
@@ -101,6 +105,10 @@ def benchmark_once(
         else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     )
 
+    logger.info(
+        "Init model: size=(d_model=%d, d_ff=%d, layers=%d, heads=%d) ctx=%d vocab=%d mode=%s",
+        d_model, d_ff, num_layers, num_heads, context_length, vocab_size, mode,
+    )
     model = BasicsTransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta)
     if dtype is not None:
         model = model.to(dtype=dtype)
@@ -117,8 +125,11 @@ def benchmark_once(
         torch.cuda.synchronize()
 
     with _get_nvtx_ctx(use_nvtx, "warmup"):
-        for _ in range(warmup_iter):
+        logger.info("Warmup: %d iterations", warmup_iter)
+        for wi in range(warmup_iter):
             run_step(batch, model, mode, optimizer, use_nvtx)
+            if log_interval > 0 and ((wi + 1) % log_interval == 0 or wi + 1 == warmup_iter):
+                logger.info("Warmup progress: %d/%d", wi + 1, warmup_iter)
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -127,11 +138,15 @@ def benchmark_once(
     per_iter_times = []
     timer = timeit.default_timer
     with _get_nvtx_ctx(use_nvtx, "measure"):
-        for _ in range(n_iter):
+        logger.info("Measure: %d iterations", n_iter)
+        for ii in range(n_iter):
             t0 = timer()
             run_step(batch, model, mode, optimizer, use_nvtx)
             t1 = timer()
-            per_iter_times.append(t1 - t0)
+            dt = t1 - t0
+            per_iter_times.append(dt)
+            if log_interval > 0 and ((ii + 1) % log_interval == 0 or ii + 1 == n_iter):
+                logger.info("Iter %d/%d: %.6fs", ii + 1, n_iter, dt)
 
     peak_mem_bytes = None
     if device.type == "cuda":
@@ -173,6 +188,8 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for train mode")
     parser.add_argument("--nvtx", action="store_true", help="Emit NVTX ranges for nsys filtering")
     parser.add_argument("--override-attn", action="store_true", help="Swap in NVTX-annotated attention kernel")
+    parser.add_argument("--log-level", choices=["CRITICAL","ERROR","WARNING","INFO","DEBUG"], default="INFO")
+    parser.add_argument("--log-interval", type=int, default=1, help="Log every k iterations (0 to disable)")
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save markdown table")
     parser.add_argument("--to-latex", type=str, default=None, help="Optional path to save LaTeX table")
     args = parser.parse_args()
@@ -185,6 +202,9 @@ def main():
     }
     dtype = dtype_map[args.dtype]
 
+    # Configure logging
+    logging.basicConfig(level=getattr(logging, args.log_level))
+
     if args.override_attn:
         import cs336_basics.model as _m
         _m.scaled_dot_product_attention = annotated_scaled_dot_product_attention
@@ -194,6 +214,10 @@ def main():
         cfg = MODEL_SIZES[size_name]
         for context_length in args.context_lengths:
             for mode in (["fwd", "fwd+bwd"] if args.mode == "fwd+bwd" else [args.mode]):
+                logger.info(
+                    "Run: size=%s ctx=%d mode=%s warmup=%d iters=%d device=%s dtype=%s",
+                    size_name, context_length, mode, args.warmup, args.iters, args.device, args.dtype,
+                )
                 rec = benchmark_once(
                     batch_size=args.batch_size,
                     warmup_iter=args.warmup,
@@ -210,9 +234,15 @@ def main():
                     device_str=args.device,
                     lr=args.lr,
                     use_nvtx=args.nvtx,
+                    log_interval=args.log_interval,
                 )
                 rec["size"] = size_name
                 records.append(rec)
+                logger.info(
+                    "Done: size=%s ctx=%d mode=%s mean=%.6fs std=%.6fs peak_mem=%.2fMB",
+                    size_name, context_length, mode, rec["mean_s"], rec["std_s"],
+                    (rec["peak_mem_mb"] if rec["peak_mem_mb"] is not None else float("nan")),
+                )
 
     df = pd.DataFrame.from_records(records)
     df = df[
