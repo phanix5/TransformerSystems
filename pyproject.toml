@@ -16,6 +16,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "pandas>=2",
+    "tabulate>=0.9",
     "ty>=0.0.1a16",
 ]
 

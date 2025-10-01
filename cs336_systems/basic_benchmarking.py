@@ -266,8 +266,16 @@ def main():
 
     print(df.to_string(index=False, float_format=lambda x: f"{x:.6f}"))
     if args.to_markdown:
+        try:
+            md = df.to_markdown(index=False)
+        except Exception:
+            # Fallback markdown without tabulate
+            header = "| " + " | ".join(df.columns) + " |\n"
+            sep = "| " + " | ".join(["---"] * len(df.columns)) + " |\n"
+            rows = "".join("| " + " | ".join(str(v) for v in row) + " |\n" for row in df.itertuples(index=False, name=None))
+            md = header + sep + rows
         with open(args.to_markdown, "w") as f:
-            f.write(df.to_markdown(index=False))
+            f.write(md)
     if args.to_latex:
         with open(args.to_latex, "w") as f:
             f.write(df.to_latex(index=False, float_format=lambda x: f"{x:.6f}"))
