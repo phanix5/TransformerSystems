@@ -8,6 +8,7 @@ import gc
 import argparse
 import statistics
 import timeit
+import os
 import torch
 from torch import Tensor
 from jaxtyping import Int
@@ -35,22 +36,44 @@ def _get_nvtx_ctx(use_nvtx: bool, name: str):
         return contextlib.nullcontext()
 
 
+def _get_autocast_ctx(enable_bf16: bool, device_type: str):
+    if not enable_bf16:
+        return contextlib.nullcontext()
+    try:
+        if device_type == "cuda":
+            if not torch.cuda.is_available():
+                return contextlib.nullcontext()
+            # Guard for older GPUs without bf16 support
+            if hasattr(torch.cuda, "is_bf16_supported") and not torch.cuda.is_bf16_supported():
+                logger.warning("BF16 autocast requested but not supported on this GPU; disabling.")
+                return contextlib.nullcontext()
+            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if device_type == "cpu":
+            return torch.autocast(device_type="cpu", dtype=torch.bfloat16)
+    except Exception:
+        logger.warning("BF16 autocast requested but not available; running without autocast.")
+    return contextlib.nullcontext()
+
+
 def run_step(
     batch: Int[Tensor, " batch seq"],
     model: BasicsTransformerLM,
     mode: str,
     optimizer: torch.optim.Optimizer | None,
     use_nvtx: bool,
+    autocast_bf16: bool,
 ) -> None:
     with _get_nvtx_ctx(use_nvtx, "step"):
         if mode == "fwd":
             with _get_nvtx_ctx(use_nvtx, "forward"), torch.inference_mode():
-                model.forward(batch)
+                with _get_autocast_ctx(autocast_bf16, batch.device.type):
+                    model.forward(batch)
         else:
             # backward and train modes
             model.zero_grad(set_to_none=True)
             with _get_nvtx_ctx(use_nvtx, "forward"):
-                logits = model.forward(batch)
+                with _get_autocast_ctx(autocast_bf16, batch.device.type):
+                    logits = model.forward(batch)
             with _get_nvtx_ctx(use_nvtx, "backward"):
                 loss = logits.sum()
                 loss.backward()
@@ -99,6 +122,8 @@ def benchmark_once(
     lr: float,
     use_nvtx: bool,
     log_interval: int,
+    autocast_bf16: bool,
+    mem_snapshot: str | None,
 ):
     device = (
         torch.device(device_str)
@@ -128,7 +153,7 @@ def benchmark_once(
     with _get_nvtx_ctx(use_nvtx, "warmup"):
         logger.info("Warmup: %d iterations", warmup_iter)
         for wi in range(warmup_iter):
-            run_step(batch, model, mode, optimizer, use_nvtx)
+            run_step(batch, model, mode, optimizer, use_nvtx, autocast_bf16)
             if log_interval > 0 and ((wi + 1) % log_interval == 0 or wi + 1 == warmup_iter):
                 logger.info("Warmup progress: %d/%d", wi + 1, warmup_iter)
 
@@ -136,18 +161,53 @@ def benchmark_once(
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize()
 
+    # Start memory history recording (CUDA only) just before measurement
+    recording_memory = False
+    if mem_snapshot is not None:
+        if device.type == "cuda" and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
+            try:
+                with _get_nvtx_ctx(use_nvtx, "memory_record_start"):
+                    torch.cuda.memory._record_memory_history(max_entries=1000000)
+                recording_memory = True
+                logger.info("CUDA memory history recording started")
+            except Exception:
+                logger.warning("Failed to start CUDA memory history; proceeding without snapshot")
+        else:
+            logger.warning("Memory snapshot requested but CUDA memory history API not available or device is not CUDA")
+
     per_iter_times = []
     timer = timeit.default_timer
     with _get_nvtx_ctx(use_nvtx, "measure"):
         logger.info("Measure: %d iterations", n_iter)
         for ii in range(n_iter):
             t0 = timer()
-            run_step(batch, model, mode, optimizer, use_nvtx)
+            run_step(batch, model, mode, optimizer, use_nvtx, autocast_bf16)
             t1 = timer()
             dt = t1 - t0
             per_iter_times.append(dt)
             if log_interval > 0 and ((ii + 1) % log_interval == 0 or ii + 1 == n_iter):
                 logger.info("Iter %d/%d: %.6fs", ii + 1, n_iter, dt)
+
+    # Dump memory snapshot and stop recording if enabled
+    if recording_memory:
+        try:
+            # Ensure directory exists if a directory part is provided
+            try:
+                snapshot_dir = os.path.dirname(mem_snapshot)
+                if snapshot_dir:
+                    os.makedirs(snapshot_dir, exist_ok=True)
+            except Exception:
+                pass
+            with _get_nvtx_ctx(use_nvtx, "memory_snapshot_dump"):
+                torch.cuda.memory._dump_snapshot(mem_snapshot)
+            logger.info("CUDA memory snapshot saved to %s", mem_snapshot)
+        except Exception:
+            logger.warning("Failed to dump CUDA memory snapshot to %s", mem_snapshot)
+        finally:
+            try:
+                torch.cuda.memory._record_memory_history(enabled=None)
+            except Exception:
+                pass
 
     peak_mem_bytes = None
     if device.type == "cuda":
@@ -193,6 +253,8 @@ def main():
     parser.add_argument("--log-interval", type=int, default=1, help="Log every k iterations (0 to disable)")
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save markdown table")
     parser.add_argument("--to-latex", type=str, default=None, help="Optional path to save LaTeX table")
+    parser.add_argument("--autocast-bf16", action="store_true", help="Enable mixed precision autocast with BF16")
+    parser.add_argument("--mem-snapshot", type=str, default=None, help="CUDA memory snapshot output path (enables memory history)")
     args = parser.parse_args()
 
     dtype_map = {
@@ -216,8 +278,8 @@ def main():
         for context_length in args.context_lengths:
             for mode in (["fwd", "fwd+bwd"] if args.mode == "fwd+bwd" else [args.mode]):
                 logger.info(
-                    "Run: size=%s ctx=%d mode=%s warmup=%d iters=%d device=%s dtype=%s",
-                    size_name, context_length, mode, args.warmup, args.iters, args.device, args.dtype,
+                    "Run: size=%s ctx=%d mode=%s warmup=%d iters=%d device=%s dtype=%s autocast_bf16=%s",
+                    size_name, context_length, mode, args.warmup, args.iters, args.device, args.dtype, args.autocast_bf16,
                 )
                 rec = benchmark_once(
                     batch_size=args.batch_size,
@@ -236,6 +298,8 @@ def main():
                     lr=args.lr,
                     use_nvtx=args.nvtx,
                     log_interval=args.log_interval,
+                    autocast_bf16=args.autocast_bf16,
+                    mem_snapshot=args.mem_snapshot,
                 )
                 rec["size"] = size_name
                 records.append(rec)
