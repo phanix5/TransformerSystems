@@ -34,14 +34,39 @@ def _time_forward(
     V: torch.Tensor,
     n: int,
     device: torch.device,
+    mem_snapshot_fwd: str | None,
 ):
     timer = timeit.default_timer
     times = []
     for i in range(n):
+        # If requested, capture a CUDA memory snapshot for the first measured forward
+        if device.type == "cuda" and i == 0 and mem_snapshot_fwd is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
+            try:
+                torch.cuda.memory._record_memory_history(max_entries=1000000)
+            except Exception:
+                pass
         t0 = timer()
         _ = sdp_attention(Q, K, V)
         if device.type == "cuda":
             torch.cuda.synchronize()
+            if i == 0 and mem_snapshot_fwd is not None and hasattr(torch.cuda.memory, "_dump_snapshot"):
+                try:
+                    # Ensure directory exists
+                    try:
+                        snapshot_dir = os.path.dirname(mem_snapshot_fwd)
+                        if snapshot_dir:
+                            os.makedirs(snapshot_dir, exist_ok=True)
+                    except Exception:
+                        pass
+                    torch.cuda.memory._dump_snapshot(mem_snapshot_fwd)
+                    logger.info("CUDA forward (inference_mode) memory snapshot saved to %s", mem_snapshot_fwd)
+                except Exception:
+                    logger.warning("Failed to dump CUDA forward memory snapshot to %s", mem_snapshot_fwd)
+                finally:
+                    try:
+                        torch.cuda.memory._record_memory_history(enabled=None)
+                    except Exception:
+                        pass
         t1 = timer()
         times.append(t1 - t0)
     return statistics.fmean(times), (statistics.pstdev(times) if n > 1 else 0.0)
@@ -58,6 +83,7 @@ def _time_backward(
     timer = timeit.default_timer
     times = []
     mem_before_backward_mb = None
+    snapshot_iter = min(49, n - 1)  # 0-indexed: 50th iteration, clamp if fewer iters
 
     for i in range(n):
         # Fresh inputs for each iteration to avoid retain_graph where possible
@@ -110,18 +136,19 @@ def _time_backward(
                             torch.cuda.memory._record_memory_history(enabled=None)
                         except Exception:
                             pass
-                if i == 0 and bwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
-                    try:
-                        torch.cuda.memory._record_memory_history(max_entries=1000000)
-                    except Exception:
-                        pass
+        # Start recording for backward snapshot at the target iteration (outside i==0 block)
+        if device.type == "cuda" and i == snapshot_iter and bwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
+            try:
+                torch.cuda.memory._record_memory_history(max_entries=1000000)
+            except Exception:
+                pass
 
         t0 = timer()
         loss.backward()
         if device.type == "cuda":
             torch.cuda.synchronize()
             # Dump backward snapshot after the first backward iteration and stop recording
-            if i == 0 and bwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_dump_snapshot"):
+            if i == snapshot_iter and bwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_dump_snapshot"):
                 try:
                     # Ensure directory exists
                     try:
@@ -163,6 +190,7 @@ def benchmark_attention_once(
     iters: int,
     device: torch.device,
     mem_snapshot: str | None,
+    mem_snapshot_fwd: str | None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "device": str(device),
@@ -187,7 +215,7 @@ def benchmark_attention_once(
         # Forward warmup and timing without autograd
         with torch.inference_mode():
             _warmup_forward(Q, K, V, warmup, device)
-            fw_mean_s, fw_std_s = _time_forward(Q, K, V, iters, device)
+            fw_mean_s, fw_std_s = _time_forward(Q, K, V, iters, device, mem_snapshot_fwd)
         record["fw_mean_s"], record["fw_std_s"] = fw_mean_s, fw_std_s
 
         # Backward warmup (build graph) and timing
@@ -243,7 +271,8 @@ def main():
     parser.add_argument("--log-level", choices=["CRITICAL","ERROR","WARNING","INFO","DEBUG"], default="INFO")
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save markdown table")
     parser.add_argument("--to-latex", type=str, default=None, help="Optional path to save LaTeX table")
-    parser.add_argument("--mem-snapshot", type=str, default=None, help="Base path for CUDA memory snapshots; will write *_fwd and *_bwd files")
+    parser.add_argument("--mem-snapshot", type=str, default=None, help="Base path for CUDA memory snapshots during backward timing; writes *_fwd and *_bwd files")
+    parser.add_argument("--mem-snapshot-fwd", type=str, default=None, help="Path to write CUDA memory snapshot for first forward iter (inference mode)")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -263,6 +292,7 @@ def main():
                 iters=args.iters,
                 device=device,
                 mem_snapshot=args.mem_snapshot,
+                mem_snapshot_fwd=args.mem_snapshot_fwd,
             )
             records.append(rec)
 
