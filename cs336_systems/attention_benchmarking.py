@@ -34,40 +34,14 @@ def _time_forward(
     V: torch.Tensor,
     n: int,
     device: torch.device,
-    mem_snapshot_fwd: str | None,
 ):
     timer = timeit.default_timer
     times = []
     for i in range(n):
-        # Start CUDA memory recording on first measured forward, if requested
-        if device.type == "cuda" and i == 0 and mem_snapshot_fwd is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
-            try:
-                torch.cuda.memory._record_memory_history(max_entries=1000000)
-            except Exception:
-                pass
-
         t0 = timer()
         _ = sdp_attention(Q, K, V)
         if device.type == "cuda":
             torch.cuda.synchronize()
-            if i == 0 and mem_snapshot_fwd is not None and hasattr(torch.cuda.memory, "_dump_snapshot"):
-                try:
-                    # Ensure directory exists
-                    try:
-                        snapshot_dir = os.path.dirname(mem_snapshot_fwd)
-                        if snapshot_dir:
-                            os.makedirs(snapshot_dir, exist_ok=True)
-                    except Exception:
-                        pass
-                    torch.cuda.memory._dump_snapshot(mem_snapshot_fwd)
-                    logger.info("CUDA forward memory snapshot saved to %s", mem_snapshot_fwd)
-                except Exception:
-                    logger.warning("Failed to dump CUDA forward memory snapshot to %s", mem_snapshot_fwd)
-                finally:
-                    try:
-                        torch.cuda.memory._record_memory_history(enabled=None)
-                    except Exception:
-                        pass
         t1 = timer()
         times.append(t1 - t0)
     return statistics.fmean(times), (statistics.pstdev(times) if n > 1 else 0.0)
@@ -91,6 +65,25 @@ def _time_backward(
         K_i = K.clone().detach().requires_grad_(True)
         V_i = V.clone().detach().requires_grad_(True)
 
+        # If requested, capture a CUDA memory snapshot for the forward pass of the first measured iteration
+        fwd_snapshot_path = None
+        bwd_snapshot_path = None
+        if mem_snapshot is not None:
+            # Build suffixed paths: insert suffix before extension if present
+            base, ext = os.path.splitext(mem_snapshot)
+            if ext:
+                fwd_snapshot_path = f"{base}_fwd{ext}"
+                bwd_snapshot_path = f"{base}_bwd{ext}"
+            else:
+                fwd_snapshot_path = mem_snapshot + "_fwd"
+                bwd_snapshot_path = mem_snapshot + "_bwd"
+
+        if device.type == "cuda" and i == 0 and fwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
+            try:
+                torch.cuda.memory._record_memory_history(max_entries=1000000)
+            except Exception:
+                pass
+
         out = sdp_attention(Q_i, K_i, V_i)
         loss = out.sum()
 
@@ -98,13 +91,26 @@ def _time_backward(
             torch.cuda.synchronize()
             if i == 0:
                 mem_before_backward_mb = torch.cuda.memory_allocated(device) / (1024 ** 2)
-
-                # Start CUDA memory history recording only for the first iteration
-                if (
-                    mem_snapshot is not None
-                    and hasattr(torch.cuda, "memory")
-                    and hasattr(torch.cuda.memory, "_record_memory_history")
-                ):
+                # Dump forward snapshot after forward, then start recording again for backward
+                if i == 0 and fwd_snapshot_path is not None and hasattr(torch.cuda.memory, "_dump_snapshot"):
+                    try:
+                        # Ensure directory exists
+                        try:
+                            snapshot_dir = os.path.dirname(fwd_snapshot_path)
+                            if snapshot_dir:
+                                os.makedirs(snapshot_dir, exist_ok=True)
+                        except Exception:
+                            pass
+                        torch.cuda.memory._dump_snapshot(fwd_snapshot_path)
+                        logger.info("CUDA forward memory snapshot saved to %s", fwd_snapshot_path)
+                    except Exception:
+                        logger.warning("Failed to dump CUDA forward memory snapshot to %s", fwd_snapshot_path)
+                    finally:
+                        try:
+                            torch.cuda.memory._record_memory_history(enabled=None)
+                        except Exception:
+                            pass
+                if i == 0 and bwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_record_memory_history"):
                     try:
                         torch.cuda.memory._record_memory_history(max_entries=1000000)
                     except Exception:
@@ -114,20 +120,20 @@ def _time_backward(
         loss.backward()
         if device.type == "cuda":
             torch.cuda.synchronize()
-            # Dump snapshot after the first backward iteration and stop recording
-            if i == 0 and mem_snapshot is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_dump_snapshot"):
+            # Dump backward snapshot after the first backward iteration and stop recording
+            if i == 0 and bwd_snapshot_path is not None and hasattr(torch.cuda, "memory") and hasattr(torch.cuda.memory, "_dump_snapshot"):
                 try:
                     # Ensure directory exists
                     try:
-                        snapshot_dir = os.path.dirname(mem_snapshot)
+                        snapshot_dir = os.path.dirname(bwd_snapshot_path)
                         if snapshot_dir:
                             os.makedirs(snapshot_dir, exist_ok=True)
                     except Exception:
                         pass
-                    torch.cuda.memory._dump_snapshot(mem_snapshot)
-                    logger.info("CUDA memory snapshot saved to %s", mem_snapshot)
+                    torch.cuda.memory._dump_snapshot(bwd_snapshot_path)
+                    logger.info("CUDA backward memory snapshot saved to %s", bwd_snapshot_path)
                 except Exception:
-                    logger.warning("Failed to dump CUDA memory snapshot to %s", mem_snapshot)
+                    logger.warning("Failed to dump CUDA backward memory snapshot to %s", bwd_snapshot_path)
                 finally:
                     try:
                         torch.cuda.memory._record_memory_history(enabled=None)
@@ -157,7 +163,6 @@ def benchmark_attention_once(
     iters: int,
     device: torch.device,
     mem_snapshot: str | None,
-    mem_snapshot_fwd: str | None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "device": str(device),
@@ -182,7 +187,7 @@ def benchmark_attention_once(
         # Forward warmup and timing without autograd
         with torch.inference_mode():
             _warmup_forward(Q, K, V, warmup, device)
-            fw_mean_s, fw_std_s = _time_forward(Q, K, V, iters, device, mem_snapshot_fwd)
+            fw_mean_s, fw_std_s = _time_forward(Q, K, V, iters, device)
         record["fw_mean_s"], record["fw_std_s"] = fw_mean_s, fw_std_s
 
         # Backward warmup (build graph) and timing
@@ -238,8 +243,7 @@ def main():
     parser.add_argument("--log-level", choices=["CRITICAL","ERROR","WARNING","INFO","DEBUG"], default="INFO")
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save markdown table")
     parser.add_argument("--to-latex", type=str, default=None, help="Optional path to save LaTeX table")
-    parser.add_argument("--mem-snapshot", type=str, default=None, help="CUDA memory snapshot output path for first backward iter")
-    parser.add_argument("--mem-snapshot-fwd", type=str, default=None, help="CUDA memory snapshot output path for first forward iter")
+    parser.add_argument("--mem-snapshot", type=str, default=None, help="Base path for CUDA memory snapshots; will write *_fwd and *_bwd files")
     args = parser.parse_args()
 
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -259,7 +263,6 @@ def main():
                 iters=args.iters,
                 device=device,
                 mem_snapshot=args.mem_snapshot,
-                mem_snapshot_fwd=args.mem_snapshot_fwd,
             )
             records.append(rec)
 
