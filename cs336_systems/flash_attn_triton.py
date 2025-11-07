@@ -138,7 +138,7 @@ def _attn_fwd(
         v_block_pointer = tl.advance(v_block_pointer, (BLOCK_SIZE_KV, 0))
         k_block_pointer = tl.advance(k_block_pointer, (0, BLOCK_SIZE_KV))
 
-    softmax_factor = l_i ** -1
+    softmax_factor = 1.0 / l_i
     o_block = o_block * softmax_factor[:, None]
 
     l_block = m_i + tl.log(l_i)
