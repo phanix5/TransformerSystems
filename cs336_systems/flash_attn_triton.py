@@ -147,7 +147,7 @@ def _attn_fwd(
         v_block_pointer = tl.advance(v_block_pointer, (BLOCK_SIZE_KV, 0))
         k_block_pointer = tl.advance(k_block_pointer, (0, BLOCK_SIZE_KV))
 
-    softmax_factor = tl.math.pow(l_i, -1)
+    softmax_factor = l_i ** -1
     o_block = o_block * softmax_factor[:, None]
 
     # Debug prints for outputs to mirror flash_attn_plain.py
