@@ -45,7 +45,7 @@ def _make_attn_inputs_small(device=None):
     batch_size = 1
     n_queries = 16
     n_keys = 16
-    D = 16
+    D = 4
     q = torch.randn(batch_size, n_queries, D, device=device, requires_grad=True)
     k = torch.randn(batch_size, n_keys, D, device=device, requires_grad=True)
     v = torch.randn(batch_size, n_keys, D, device=device, requires_grad=True)
@@ -128,3 +128,4 @@ def test_forward_pytorch_and_triton_same_input_no_assertions():
     triton_impl = get_flashattention_autograd_function_triton().apply
     _ = pytorch_impl(q, k, v, False)
     _ = triton_impl(q, k, v, False)
+    torch.cuda.synchronize()
