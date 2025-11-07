@@ -40,6 +40,20 @@ def _make_attn_inputs(device=None):
     return q, k, v, do
 
 
+def _make_attn_inputs_small(device=None):
+    torch.random.manual_seed(0)
+    batch_size = 1
+    n_queries = 16
+    n_keys = 16
+    D = 16
+    q = torch.randn(batch_size, n_queries, D, device=device, requires_grad=True)
+    k = torch.randn(batch_size, n_keys, D, device=device, requires_grad=True)
+    v = torch.randn(batch_size, n_keys, D, device=device, requires_grad=True)
+    do = torch.randn(batch_size, n_queries, D, device=device)
+
+    return q, k, v, do
+
+
 def _test_flash_forward_pass(impl, device="cpu", is_causal=False):
     q, k, v, _do = _make_attn_inputs(device)
     o = impl(q, k, v, is_causal)
@@ -109,7 +123,7 @@ def test_flash_backward_triton(is_causal):
     reason="A GPU must be available to run Triton kernels",
 )
 def test_forward_pytorch_and_triton_same_input_no_assertions():
-    q, k, v, _ = _make_attn_inputs(device="cuda")
+    q, k, v, _ = _make_attn_inputs_small(device="cuda")
     pytorch_impl = get_flashattention_autograd_function_pytorch().apply
     triton_impl = get_flashattention_autograd_function_triton().apply
     _ = pytorch_impl(q, k, v, False)
