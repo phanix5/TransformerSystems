@@ -73,6 +73,8 @@ def _attn_fwd(
     #           q_21 q_22 ... q_2d
     q_block = tl.load(q_block_pointer)
 
+    print("q_block", q_block)
+
     # o_block = o_11 o_12 ... o_1d
     #           o_21 o_22 ... o_2d
     o_block = tl.zeros([BLOCK_SIZE_Q, HEAD_DIM], dtype=tl.float32)
