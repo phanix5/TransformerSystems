@@ -102,3 +102,15 @@ def test_flash_backward_triton(is_causal):
     torch.testing.assert_close(dq_expected, q.grad, rtol=1e-2, atol=1e-2)
     torch.testing.assert_close(dk_expected, k.grad, rtol=1e-2, atol=1e-2)
     torch.testing.assert_close(dv_expected, v.grad, rtol=1e-2, atol=1e-2)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="A GPU must be available to run Triton kernels",
+)
+def test_forward_pytorch_and_triton_same_input_no_assertions():
+    q, k, v, _ = _make_attn_inputs(device="cuda")
+    pytorch_impl = get_flashattention_autograd_function_pytorch().apply
+    triton_impl = get_flashattention_autograd_function_triton().apply
+    _ = pytorch_impl(q, k, v, False)
+    _ = triton_impl(q, k, v, False)
