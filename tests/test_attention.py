@@ -43,9 +43,9 @@ def _make_attn_inputs(device=None):
 def _make_attn_inputs_small(device=None):
     torch.random.manual_seed(0)
     batch_size = 1
-    n_queries = 16
-    n_keys = 16
-    D = 4
+    n_queries = 8
+    n_keys = 8
+    D = 8
     q = torch.randn(batch_size, n_queries, D, device=device, requires_grad=True)
     k = torch.randn(batch_size, n_keys, D, device=device, requires_grad=True)
     v = torch.randn(batch_size, n_keys, D, device=device, requires_grad=True)
