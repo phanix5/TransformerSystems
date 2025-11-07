@@ -68,16 +68,10 @@ def _attn_fwd(
         order = (0,)
     )
 
-    # Debug prints to mirror flash_attn_plain.py
-    tl.device_print("softmax_scale: {}", softmax_scale)
-    tl.device_print("query iteration #{}", block_idx_q)
-
     # Load Q block into SRAM
     # q_block = q_11 q_12 ... q_1d
     #           q_21 q_22 ... q_2d
     q_block = tl.load(q_block_pointer)
-    for r in tl.static_range(0, BLOCK_SIZE_Q):
-        tl.device_print("q_block[{}]: {}", r, q_block[r, :])
 
     # o_block = o_11 o_12 ... o_1d
     #           o_21 o_22 ... o_2d
@@ -150,12 +144,7 @@ def _attn_fwd(
     softmax_factor = l_i ** -1
     o_block = o_block * softmax_factor[:, None]
 
-    # Debug prints for outputs to mirror flash_attn_plain.py
-    for r in tl.static_range(0, BLOCK_SIZE_Q):
-        tl.device_print("o_block[{}]: {}", r, o_block[r, :])
     l_block = m_i + tl.log(l_i)
-    for r in tl.static_range(0, BLOCK_SIZE_Q):
-        tl.device_print("l_block[{}]: {}", r, l_block[r])
 
     tl.store(o_block_pointer, o_block)
     tl.store(l_block_pointer, l_block)
