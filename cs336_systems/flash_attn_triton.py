@@ -165,7 +165,7 @@ def _attn_fwd(
 class TritonAttention(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, K: Float[Tensor, "batch_size seq_len d_k"], Q, V):
+    def forward(ctx, K: Float[Tensor, "batch_size seq_len d_k"], Q, V, is_causal=False):
         BATCH_SIZE, SEQ_LEN, HEAD_DIM = Q.shape
 
         # O is like Q
@@ -188,5 +188,5 @@ class TritonAttention(torch.autograd.Function):
             stride_batch, stride_sq, stride_dim, softmax_scale, 
             SEQ_LEN, HEAD_DIM, 
             BLOCK_SIZE_Q = 16, BLOCK_SIZE_KV = 16,
-            IS_CAUSAL = False
+            IS_CAUSAL = is_causal
         )
