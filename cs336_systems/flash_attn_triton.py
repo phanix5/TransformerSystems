@@ -114,7 +114,8 @@ def _attn_fwd(
 
         # Next, apply mask
         if block_idx_q == i and IS_CAUSAL:
-            mask_i = mask_j = tl.arange(BLOCK_SIZE_Q)
+            mask_i = tl.arange(BLOCK_SIZE_Q)
+            mask_j = tl.arange(BLOCK_SIZE_Q)
             mask = mask_i[None, :] <= mask_j[:, None]
             kq_block = tl.where(mask, kq_block, float("-inf"))
 
