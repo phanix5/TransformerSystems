@@ -22,7 +22,7 @@ def _attn_fwd(
     block_idx_q = tl.program_id(0)
     batch_idx = tl.program_id(1)
 
-    q_block_pointer = tl.make_block_pointer(
+    q_block_pointer = tl.make_block_ptr(
         Q + stride_batch * batch_idx,
         shape = (SEQ_LEN, HEAD_DIM),
         strides = (stride_seq, stride_dim),
@@ -31,16 +31,17 @@ def _attn_fwd(
         order = (1, 0)
     )
 
-    k_block_pointer = tl.make_block_pointer(
+    # Load K as [HEAD_DIM, SEQ_LEN] so that tl.dot(Q, K_block) computes Q @ K^T
+    k_block_pointer = tl.make_block_ptr(
         K + stride_batch * batch_idx,
-        shape = (SEQ_LEN, HEAD_DIM),
+        shape = (HEAD_DIM, SEQ_LEN),
         strides = (stride_dim, stride_seq),
         offsets = (0, 0),
         block_shape = (HEAD_DIM, BLOCK_SIZE_KV),
         order = (0, 1)
     )
 
-    v_block_pointer = tl.make_block_pointer(
+    v_block_pointer = tl.make_block_ptr(
         V + stride_batch * batch_idx,
         shape = (SEQ_LEN, HEAD_DIM),
         strides = (stride_seq, stride_dim),
@@ -49,7 +50,7 @@ def _attn_fwd(
         order = (1, 0)
     )
 
-    o_block_pointer = tl.make_block_pointer(
+    o_block_pointer = tl.make_block_ptr(
         O + stride_batch * batch_idx,
         shape = (SEQ_LEN, HEAD_DIM),
         strides = (stride_seq, stride_dim),
@@ -58,13 +59,13 @@ def _attn_fwd(
         order = (1, 0)
     )
 
-    l_block_pointer = tl.make_block_pointer(
-        L + stride_batch * batch_idx,
+    l_block_pointer = tl.make_block_ptr(
+        L + SEQ_LEN * batch_idx,
         shape = (SEQ_LEN,),
         strides = (1,),
-        offsets = (0,),
+        offsets = (BLOCK_SIZE_Q * block_idx_q,),
         block_shape = (BLOCK_SIZE_Q,),
-        order = (1,)
+        order = (0,)
     )
 
     # Debug prints to mirror flash_attn_plain.py
@@ -72,8 +73,6 @@ def _attn_fwd(
     tl.device_print("query iteration #{}", block_idx_q)
 
     # Load Q block into SRAM
-    q_offsets = BLOCK_SIZE_Q*block_idx_q + tl.arange(0, BLOCK_SIZE_Q)
-
     # q_block = q_11 q_12 ... q_1d
     #           q_21 q_22 ... q_2d
     q_block = tl.load(q_block_pointer)
@@ -111,7 +110,7 @@ def _attn_fwd(
         # First, calculate QK^T, note that we already loaded K as transposed
         # kq_block = qk_11 qk_12
         #            qk_21 qk_22
-        kq_block = tl.dot(q_block, k_block) / softmax_scale
+        kq_block = tl.dot(q_block, k_block) * softmax_scale
 
         # Next, apply mask
         if block_idx_q == i and IS_CAUSAL:
@@ -165,12 +164,12 @@ def _attn_fwd(
 class TritonAttention(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, K: Float[Tensor, "batch_size seq_len d_k"], Q, V, is_causal=False):
+    def forward(ctx, Q: Float[Tensor, "batch_size seq_len d_k"], K, V, is_causal=False):
         BATCH_SIZE, SEQ_LEN, HEAD_DIM = Q.shape
 
         # O is like Q
         O = torch.empty_like(Q)
-        L = torch.empty((Q.shape[:-1]))
+        L = torch.empty(Q.shape[:-1], device=Q.device, dtype=Q.dtype)
 
         softmax_scale = 1 / math.sqrt(Q.shape[-1])
         stride_batch = SEQ_LEN * HEAD_DIM
@@ -190,3 +189,6 @@ class TritonAttention(torch.autograd.Function):
             BLOCK_SIZE_Q = 16, BLOCK_SIZE_KV = 16,
             IS_CAUSAL = is_causal
         )
+        # Save only L as required by tests
+        ctx.save_for_backward(L)
+        return O
