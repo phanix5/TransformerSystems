@@ -175,7 +175,7 @@ class TritonAttention(torch.autograd.Function):
             Q, K, V, O, L,
             stride_batch, stride_sq, stride_dim, softmax_scale, 
             SEQ_LEN, HEAD_DIM, 
-            BLOCK_SIZE_Q = 8, BLOCK_SIZE_KV = 8,
+            BLOCK_SIZE_Q = 16, BLOCK_SIZE_KV = 16,
             IS_CAUSAL = is_causal
         )
         # Save only L as required by tests
