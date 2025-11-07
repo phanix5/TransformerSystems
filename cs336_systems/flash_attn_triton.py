@@ -87,9 +87,6 @@ def _attn_fwd(
 
     for i in range(tl.cdiv(SEQ_LEN, BLOCK_SIZE_KV)):
 
-        if i > block_idx_q and IS_CAUSAL:
-            break
-
         # k_block = k_11 k_21
         #           k_12 k_22
         #           .    .
@@ -107,11 +104,11 @@ def _attn_fwd(
         kq_block = tl.dot(q_block, k_block) * softmax_scale
 
         # Next, apply mask
-        if block_idx_q == i and IS_CAUSAL:
-            mask_i = tl.arange(BLOCK_SIZE_Q)
-            mask_j = tl.arange(BLOCK_SIZE_Q)
-            mask = mask_i[None, :] <= mask_j[:, None]
-            kq_block = tl.where(mask, kq_block, float("-inf"))
+        # if block_idx_q == i and IS_CAUSAL:
+        #     mask_i = tl.arange(BLOCK_SIZE_Q)
+        #     mask_j = tl.arange(BLOCK_SIZE_Q)
+        #     mask = mask_i[None, :] <= mask_j[:, None]
+        #     kq_block = tl.where(mask, kq_block, float("-inf"))
 
         # Next, find max in block
         # m_ij = max(-inf, max(qk_11, qk_12))
