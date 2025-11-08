@@ -22,7 +22,6 @@ class FlashAttention(torch.autograd.Function):
             st_index_r = i * b_r
             ed_index_r = (i+1) * b_r
             q = Q[..., st_index_r:ed_index_r, :]
-            print(f"q_block: {q}")
 
             o = torch.zeros_like(q)
             l = torch.zeros(*q.shape[:-1], device=q.device, dtype=q.dtype)
@@ -35,6 +34,7 @@ class FlashAttention(torch.autograd.Function):
                 v = V[..., st_index:ed_index, :]
 
                 s_j = einsum(q, k, " ... b_r d, ... b_c d -> ... b_r b_c") * scale # QK^T
+                print(f"qk^t: {s_j}")
 
                 s_row_max = torch.amax(s_j, dim=-1)
                 m_new = torch.maximum(m, s_row_max)

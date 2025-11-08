@@ -4,10 +4,8 @@ import triton
 from jaxtyping import Float
 import triton.language as tl
 import math
-import os
 
 
-os.environ["TRITON_INTERPRET"] = "1"
 @triton.jit
 def _attn_fwd(
     Q, K, V,
@@ -108,6 +106,9 @@ def _attn_fwd(
         #            qk_21 qk_22
         kq_block = tl.dot(q_block, k_block) * softmax_scale
 
+        ## DEBUG
+        o_block = kq_block
+
         # Next, apply mask
         # if block_idx_q == i and IS_CAUSAL:
         #     mask_i = tl.arange(BLOCK_SIZE_Q)
@@ -118,38 +119,38 @@ def _attn_fwd(
         # Next, find max in block
         # m_ij = max(-inf, max(qk_11, qk_12))
         #        max(-inf, max(qk_21, qk_22))
-        m_ij = tl.maximum(m_i, tl.max(kq_block, 1))
+        #m_ij = tl.maximum(m_i, tl.max(kq_block, 1))
 
         # Softmax safety: subtract by max till now
-        kq_block -= m_ij[:, None]
+        #kq_block -= m_ij[:, None]
 
         # Next, find new l
-        p_block = tl.math.exp(kq_block)
+        #p_block = tl.math.exp(kq_block)
 
         # Sum the exponentials
-        l_ij = tl.sum(p_block, 1)
+        #l_ij = tl.sum(p_block, 1)
 
         # correction factor exp(m_old - m_new)
-        alpha = tl.math.exp(m_i - m_ij)
+        #alpha = tl.math.exp(m_i - m_ij)
 
         # add to running sum of exps with correction factor
-        l_i = l_ij + l_i * alpha
+        #l_i = l_ij + l_i * alpha
 
-        o_block = o_block * alpha[:, None]
-        o_block = tl.dot(p_block, v_block, o_block)
+        #o_block = o_block * alpha[:, None]
+        #o_block = tl.dot(p_block, v_block, o_block)
 
-        m_i = m_ij
+        #m_i = m_ij
 
-        v_block_pointer = tl.advance(v_block_pointer, (BLOCK_SIZE_KV, 0))
-        k_block_pointer = tl.advance(k_block_pointer, (0, BLOCK_SIZE_KV))
+        #v_block_pointer = tl.advance(v_block_pointer, (BLOCK_SIZE_KV, 0))
+        #k_block_pointer = tl.advance(k_block_pointer, (0, BLOCK_SIZE_KV))
 
     softmax_factor = 1.0 / l_i
-    o_block = o_block * softmax_factor[:, None]
+    #o_block = o_block * softmax_factor[:, None]
 
-    l_block = m_i + tl.log(l_i)
+    #l_block = m_i + tl.log(l_i)
 
     tl.store(o_block_pointer, o_block)
-    tl.store(l_block_pointer, l_block)
+    #tl.store(l_block_pointer, l_block)
 
 
 
@@ -183,4 +184,5 @@ class TritonAttention(torch.autograd.Function):
         )
         # Save only L as required by tests
         ctx.save_for_backward(L)
+        print(f"kq^t: {O}")
         return O
