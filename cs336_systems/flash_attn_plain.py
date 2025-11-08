@@ -38,7 +38,6 @@ class FlashAttention(torch.autograd.Function):
                 s_row_max = torch.amax(s_j, dim=-1)
                 m_new = torch.maximum(m, s_row_max)
                 p = torch.exp(s_j - m_new[..., None])
-                print(f"Debug: {p}")
                 l = torch.exp(m - m_new) * l + torch.sum(p, dim=-1)
                 o = torch.exp((m - m_new)[..., None]) * o + einsum(p, v, "... q k, ... k d -> ... q d")
 
@@ -50,6 +49,7 @@ class FlashAttention(torch.autograd.Function):
             O[..., st_index_r:ed_index_r, :] = o
             L_out[..., st_index_r:ed_index_r] = L_blk
         # Save tensors needed for backward
+        print(f"Debug: {O}")
         ctx.save_for_backward(L_out, K, Q, V, O)
         ctx.block_sizes = (b_r, b_c)
         ctx.scale = scale

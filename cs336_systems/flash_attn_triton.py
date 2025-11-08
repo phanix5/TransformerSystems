@@ -122,33 +122,30 @@ def _attn_fwd(
         # Next, find new l
         p_block = tl.math.exp(kq_block)
 
-        ## DEBUG
-        o_block = p_block
-
         # Sum the exponentials
-        #l_ij = tl.sum(p_block, 1)
+        l_ij = tl.sum(p_block, 1)
 
         # correction factor exp(m_old - m_new)
-        #alpha = tl.math.exp(m_i - m_ij)
+        alpha = tl.math.exp(m_i - m_ij)
 
         # add to running sum of exps with correction factor
-        #l_i = l_ij + l_i * alpha
+        l_i = l_ij + l_i * alpha
 
-        #o_block = o_block * alpha[:, None]
-        #o_block = tl.dot(p_block, v_block, o_block)
+        o_block = o_block * alpha[:, None]
+        o_block = tl.dot(p_block, v_block, o_block)
 
-        #m_i = m_ij
+        m_i = m_ij
 
-        #v_block_pointer = tl.advance(v_block_pointer, (BLOCK_SIZE_KV, 0))
-        #k_block_pointer = tl.advance(k_block_pointer, (0, BLOCK_SIZE_KV))
+        v_block_pointer = tl.advance(v_block_pointer, (BLOCK_SIZE_KV, 0))
+        k_block_pointer = tl.advance(k_block_pointer, (0, BLOCK_SIZE_KV))
 
     softmax_factor = 1.0 / l_i
-    #o_block = o_block * softmax_factor[:, None]
+    o_block = o_block * softmax_factor[:, None]
 
-    #l_block = m_i + tl.log(l_i)
+    l_block = m_i + tl.log(l_i)
 
     tl.store(o_block_pointer, o_block)
-    #tl.store(l_block_pointer, l_block)
+    tl.store(l_block_pointer, l_block)
 
 
 
