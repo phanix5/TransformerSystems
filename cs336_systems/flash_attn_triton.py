@@ -123,7 +123,7 @@ def _attn_fwd(
         p_block = tl.math.exp(kq_block)
 
         ## DEBUG
-        o_block = m_ij
+        o_block += m_ij[:, None]
 
         # Sum the exponentials
         #l_ij = tl.sum(p_block, 1)
