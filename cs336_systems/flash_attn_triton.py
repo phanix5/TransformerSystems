@@ -4,7 +4,10 @@ import triton
 from jaxtyping import Float
 import triton.language as tl
 import math
+import os
 
+
+os.environ["TRITON_INTERPRET"] = "1"
 @triton.jit
 def _attn_fwd(
     Q, K, V,
