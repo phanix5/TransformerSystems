@@ -47,9 +47,6 @@ class FlashAttention(torch.autograd.Function):
             o = o / l[..., None]
             L_blk = m + torch.log(l)
 
-            print(f"o_block: {o}")
-            print(f"l_block: {L_blk}")
-
             O[..., st_index_r:ed_index_r, :] = o
             L_out[..., st_index_r:ed_index_r] = L_blk
         # Save tensors needed for backward
