@@ -80,7 +80,7 @@ def _attn_fwd(
 
     # m_i = -inf
     #       -inf
-    m_i = tl.zeros([BLOCK_SIZE_Q], dtype=tl.float32) - float("-inf")
+    m_i = tl.zeros([BLOCK_SIZE_Q], dtype=tl.float32) + float("-inf")
 
     # l_i = 1
     #       1
@@ -123,7 +123,7 @@ def _attn_fwd(
         p_block = tl.math.exp(kq_block)
 
         ## DEBUG
-        o_block += m_ij[:, None]
+        o_block = p_block
 
         # Sum the exponentials
         #l_ij = tl.sum(p_block, 1)
