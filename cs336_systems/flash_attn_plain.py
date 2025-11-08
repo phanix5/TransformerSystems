@@ -34,11 +34,11 @@ class FlashAttention(torch.autograd.Function):
                 v = V[..., st_index:ed_index, :]
 
                 s_j = einsum(q, k, " ... b_r d, ... b_c d -> ... b_r b_c") * scale # QK^T
-                print(f"qk^t: {s_j}")
 
                 s_row_max = torch.amax(s_j, dim=-1)
                 m_new = torch.maximum(m, s_row_max)
                 p = torch.exp(s_j - m_new[..., None])
+                print(f"Debug: {p}")
                 l = torch.exp(m - m_new) * l + torch.sum(p, dim=-1)
                 o = torch.exp((m - m_new)[..., None]) * o + einsum(p, v, "... q k, ... k d -> ... q d")
 

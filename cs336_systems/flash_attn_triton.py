@@ -74,8 +74,6 @@ def _attn_fwd(
     #           q_21 q_22 ... q_2d
     q_block = tl.load(q_block_pointer)
 
-    tl.device_print("q_block", q_block)
-
     # o_block = o_11 o_12 ... o_1d
     #           o_21 o_22 ... o_2d
     o_block = tl.zeros([BLOCK_SIZE_Q, HEAD_DIM], dtype=tl.float32)
@@ -106,9 +104,6 @@ def _attn_fwd(
         #            qk_21 qk_22
         kq_block = tl.dot(q_block, k_block) * softmax_scale
 
-        ## DEBUG
-        o_block = kq_block
-
         # Next, apply mask
         # if block_idx_q == i and IS_CAUSAL:
         #     mask_i = tl.arange(BLOCK_SIZE_Q)
@@ -119,13 +114,16 @@ def _attn_fwd(
         # Next, find max in block
         # m_ij = max(-inf, max(qk_11, qk_12))
         #        max(-inf, max(qk_21, qk_22))
-        #m_ij = tl.maximum(m_i, tl.max(kq_block, 1))
+        m_ij = tl.maximum(m_i, tl.max(kq_block, 1))
 
         # Softmax safety: subtract by max till now
-        #kq_block -= m_ij[:, None]
+        kq_block -= m_ij[:, None]
 
         # Next, find new l
-        #p_block = tl.math.exp(kq_block)
+        p_block = tl.math.exp(kq_block)
+
+        ## DEBUG
+        o_block = p_block
 
         # Sum the exponentials
         #l_ij = tl.sum(p_block, 1)
@@ -184,5 +182,5 @@ class TritonAttention(torch.autograd.Function):
         )
         # Save only L as required by tests
         ctx.save_for_backward(L)
-        print(f"kq^t: {O}")
+        print(f"Debug: {O}")
         return O
