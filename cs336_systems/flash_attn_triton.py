@@ -552,7 +552,7 @@ class TritonAttention(torch.autograd.Function):
             HEAD_DIM= HEAD_DIM
         )
 
-        print(f"Debug Triton D: {D}")
+        print(f"Debug Triton D: {D.shape}")
 
         grid = (SEQ_LEN // BLOCK_SIZE_MACRO, 1, BATCH_SIZE)
 
