@@ -362,6 +362,7 @@ dependencies = [
     { name = "torch", version = "2.2.2", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.6.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "tqdm" },
+    { name = "triton", marker = "sys_platform == 'linux'" },
     { name = "ty" },
     { name = "wandb" },
 ]
@@ -381,6 +382,7 @@ requires-dist = [
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'", specifier = "~=2.6.0" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = "~=2.2.2" },
     { name = "tqdm", specifier = ">=4.67.1" },
+    { name = "triton", marker = "sys_platform == 'linux'", specifier = ">=3.0.0" },
     { name = "ty", specifier = ">=0.0.1a16" },
     { name = "wandb", specifier = ">=0.19.7" },
 ]

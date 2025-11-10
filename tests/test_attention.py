@@ -129,3 +129,23 @@ def test_forward_pytorch_and_triton_same_input_no_assertions():
     _ = pytorch_impl(q, k, v, False)
     _ = triton_impl(q, k, v, False)
     torch.cuda.synchronize()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="A GPU must be available to run Triton kernels",
+)
+def test_backward_pytorch_and_triton_same_input_no_assertions():
+    q, k, v, do = _make_attn_inputs_small(device="cuda")
+    pytorch_impl = get_flashattention_autograd_function_pytorch().apply
+    triton_impl = get_flashattention_autograd_function_triton().apply
+
+    pytorch_impl(q, k, v, False).backward(do)
+
+    # Reset grads before running the second backward to avoid accumulation
+    q.grad = None
+    k.grad = None
+    v.grad = None
+
+    triton_impl(q, k, v, False).backward(do)
+    torch.cuda.synchronize()

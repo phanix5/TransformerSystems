@@ -14,11 +14,9 @@ class FlashAttention(torch.autograd.Function):
         n_c = math.ceil(K.shape[-2]/b_c)
         D = Q.shape[-1]
         scale = 1.0 / math.sqrt(D)
-        print(f"softmax_scale: {scale}")
         O = torch.zeros_like(Q)
         L_out = torch.empty(*Q.shape[:-1], device=Q.device, dtype=Q.dtype)
         for i in range(n_r):
-            print(f"query iteration #{i}")
             st_index_r = i * b_r
             ed_index_r = (i+1) * b_r
             q = Q[..., st_index_r:ed_index_r, :]
@@ -35,6 +33,12 @@ class FlashAttention(torch.autograd.Function):
 
                 s_j = einsum(q, k, " ... b_r d, ... b_c d -> ... b_r b_c") * scale # QK^T
 
+                if is_causal:
+                    mask_r = torch.arange(st_index_r, ed_index_r, device=q.device)
+                    mask_c = torch.arange(st_index, ed_index, device=q.device)
+                    mask = mask_r[:, None] >= mask_c[None, :]
+                    s_j = torch.where(mask, s_j, float('-inf'))
+
                 s_row_max = torch.amax(s_j, dim=-1)
                 m_new = torch.maximum(m, s_row_max)
                 p = torch.exp(s_j - m_new[..., None])
@@ -49,12 +53,38 @@ class FlashAttention(torch.autograd.Function):
             O[..., st_index_r:ed_index_r, :] = o
             L_out[..., st_index_r:ed_index_r] = L_blk
         # Save tensors needed for backward
-        print(f"Debug: {O}")
         ctx.save_for_backward(L_out, K, Q, V, O)
         ctx.block_sizes = (b_r, b_c)
         ctx.scale = scale
         ctx.is_causal = is_causal
+        ctx.softmax_scale = scale
         return O
 
-    def backward(ctx, grad_output):
-        raise NotImplementedError
+    def backward(ctx, dO):
+        L_out, K, Q, V, O = ctx.saved_tensors
+
+        D = torch.sum(O * dO, dim=-1, keepdim=True)
+
+        S = einsum(Q, K, "... q d, ... k d -> ... q k") * ctx.softmax_scale
+        P = torch.exp(S - L_out.unsqueeze(-1))
+
+        if ctx.is_causal:
+            P = torch.tril(P)
+
+        dV = einsum(P, dO, "... q k, ... q d -> ... k d")
+        print(f"Debug dV: {dV}")
+        dP = einsum(dO, V, "... q d, ... k d -> ... q k")
+
+        dS = P * (dP - D)
+
+        dQ = ctx.softmax_scale * einsum(dS, K, "... q k, ... k d -> ... q d")
+        dK = ctx.softmax_scale * einsum(dS, Q, "... q k, ... q d -> ... k d")
+
+        # Gradients must match forward inputs order: Q, K, V, is_causal
+        return dQ, dK, dV, None
+
+
+
+
+
+
