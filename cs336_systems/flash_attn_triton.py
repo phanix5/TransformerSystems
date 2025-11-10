@@ -584,8 +584,6 @@ class TritonAttention(torch.autograd.Function):
             num_stages=NUM_STAGES
         )
 
-        print(f"Debug Triton dK: {dK}")
-
         return dQ, dK, dV, None
 
 

@@ -114,8 +114,8 @@ def test_flash_backward_triton(is_causal):
     get_flashattention_autograd_function_triton().apply(q, k, v, is_causal).backward(do)
 
     torch.testing.assert_close(dv_expected, v.grad, rtol=1e-2, atol=1e-2)
-    torch.testing.assert_close(dq_expected, q.grad, rtol=1e-2, atol=1e-2)
     torch.testing.assert_close(dk_expected, k.grad, rtol=1e-2, atol=1e-2)
+    torch.testing.assert_close(dq_expected, q.grad, rtol=1e-2, atol=1e-2)
     
 
 
