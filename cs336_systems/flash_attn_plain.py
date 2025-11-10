@@ -65,7 +65,7 @@ class FlashAttention(torch.autograd.Function):
 
         D = torch.sum(O * dO, dim=-1, keepdim=True)
 
-        print(f"Debug D: {D.shape}")
+        print(f"Debug D: {D.squeeze(-1)[-1]}")
 
         S = einsum(Q, K, "... q d, ... k d -> ... q k") * ctx.softmax_scale
         P = torch.exp(S - L_out.unsqueeze(-1))
