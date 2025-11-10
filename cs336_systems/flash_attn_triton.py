@@ -104,19 +104,13 @@ def _attn_fwd(
         #            qk_21 qk_22
         kq_block = tl.dot(q_block, k_block) * softmax_scale
 
-        # Next, apply mask
-        # if block_idx_q == i and IS_CAUSAL:
-        #     mask_i = tl.arange(BLOCK_SIZE_Q)
-        #     mask_j = tl.arange(BLOCK_SIZE_Q)
-        #     mask = mask_i[None, :] <= mask_j[:, None]
-        #     kq_block = tl.where(mask, kq_block, float("-inf"))
-
         # Next, find max in block
         # m_ij = max(-inf, max(qk_11, qk_12))
         #        max(-inf, max(qk_21, qk_22))
         m_ij = tl.maximum(m_i, tl.max(kq_block, 1))
 
         # Softmax safety: subtract by max till now
+        # Since m_ij is float32, kq_block will become float32
         kq_block -= m_ij[:, None]
 
         # Next, find new l
@@ -132,6 +126,8 @@ def _attn_fwd(
         l_i = l_ij + l_i * alpha
 
         o_block = o_block * alpha[:, None]
+        # Cast p_block back to original type
+        p_block = p_block.to(v_block.type.element_ty)
         o_block = tl.dot(p_block, v_block, o_block)
 
         m_i = m_ij
@@ -273,6 +269,8 @@ def _attn_fwd_causal(
         l_i = l_ij + l_i * alpha
 
         o_block = o_block * alpha[:, None]
+        # Cast p_block back to original type
+        p_block = p_block.to(v_block.type.element_ty)
         o_block = tl.dot(p_block, v_block, o_block)
 
         m_i = m_ij
@@ -363,7 +361,7 @@ def _attn_bwd_dk_dv(
     offs_q = tl.arange(0, BLOCK_Q)
 
     # load Q as transposed
-    q_ptrs = Q + offs_q[:, None] + offs_dim[None, :] * HEAD_DIM
+    q_ptrs = Q + offs_q[:, None] * HEAD_DIM + offs_dim[None, :]
     qt_ptrs = tl.trans(q_ptrs)
     dO_ptrs = dO + offs_q[:, None] * HEAD_DIM + offs_dim[None, :]
 
@@ -406,11 +404,11 @@ def _attn_bwd_dk_dv(
     
     # Write the dV and DK blocks
     dV_block_ptrs = dV + offs_kv[:, None] * HEAD_DIM + offs_dim[None, :]
-    tl.store(dV_block_ptrs, dV_block)
+    tl.store(dV_block_ptrs, dV_block.to(dV.type.element_ty))
 
 
     dK_block_ptrs = dK + offs_kv[:, None] * HEAD_DIM + offs_dim[None, :]
-    tl.store(dK_block_ptrs, dV_block)
+    tl.store(dK_block_ptrs, dK_block.to(dK.type.element_ty))
         
 
 @triton.jit
@@ -495,10 +493,7 @@ def _attn_bwd_dq(
     
     # Write Dq blocks
     dq_block_ptrs = dQ + offs_q[:, None] * HEAD_DIM + offs_dim[None, :]
-    tl.store(dq_block_ptrs, dQ_block)
-
-        
-
+    tl.store(dq_block_ptrs, dQ_block.to(dQ.type.element_ty))
 
 class TritonAttention(torch.autograd.Function):
 
@@ -528,7 +523,6 @@ class TritonAttention(torch.autograd.Function):
             SEQ_LEN, HEAD_DIM,
             BLOCK_SIZE_Q=16, BLOCK_SIZE_KV=16,
         )
-        # Save only L as required by tests
         ctx.save_for_backward(Q, K, V, L, O)
         ctx.causal = is_causal
         ctx.softmax_scale = softmax_scale
@@ -593,7 +587,7 @@ class TritonAttention(torch.autograd.Function):
             num_stages=NUM_STAGES
         )
 
-        return dO, dK, dV, None, None
+        return dQ, dK, dV, None
 
 
 
