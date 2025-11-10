@@ -388,7 +388,7 @@ def _attn_bwd_dk_dv(
             )
             Pt_block = tl.where(mask_block, Pt_block, 0.0)
         
-        dV_block += tl.dot(Pt_block.to(tl.float16), dO_block)
+        dV_block += tl.dot(Pt_block, dO_block).to(tl.float16)
         Di = tl.load(D + offs_q)
 
         # Calculate V_j * dO_i^T
