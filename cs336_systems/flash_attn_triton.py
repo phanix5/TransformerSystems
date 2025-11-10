@@ -552,6 +552,8 @@ class TritonAttention(torch.autograd.Function):
             HEAD_DIM= HEAD_DIM
         )
 
+        print(f"Debug Triton D: {D}")
+
         grid = (SEQ_LEN // BLOCK_SIZE_MACRO, 1, BATCH_SIZE)
 
         stage = 3 if ctx.causal else 1
