@@ -463,15 +463,17 @@ def _attn_bwd_dq(
     num_steps = SEQ_LEN // BLOCK_KV
 
     for bulk_id in range(num_steps):
+
         Kt_block = tl.load(kt_ptrs)
         Vt_block = tl.load(vt_ptrs)
 
         L_block = tl.load(L + offs_q)
 
         # Calculate P
-
         QK_block = softmax_scale * tl.dot(Q_block, Kt_block)
         P_block = tl.math.exp(QK_block - L_block[:, None]) # BLOCK_Q x BLOCK_KV
+
+        offs_kv = curr_kv + tl.arange(0, BLOCK_KV)
 
         if STAGE == 3:
             mask_block = (
