@@ -243,8 +243,8 @@ def _attn_fwd_causal(
         kq_block = tl.dot(q_block, k_block) * softmax_scale
 
         # Next, apply mask
-        mask_i = block_idx_q * BLOCK_SIZE_Q + tl.arange(BLOCK_SIZE_Q)
-        mask_j = i * BLOCK_SIZE_KV + tl.arange(BLOCK_SIZE_KV)
+        mask_i = block_idx_q * BLOCK_SIZE_Q + tl.arange(0, BLOCK_SIZE_Q)
+        mask_j = i * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
         mask = mask_i[:, None] >= mask_j[None, :]
         kq_block = tl.where(mask, kq_block, float("-inf"))
 
