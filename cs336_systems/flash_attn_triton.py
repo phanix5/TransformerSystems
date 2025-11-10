@@ -531,8 +531,7 @@ class TritonAttention(torch.autograd.Function):
         # Save only L as required by tests
         ctx.save_for_backward(Q, K, V, L, O)
         ctx.causal = is_causal
-        ctx.softamax_scale = softmax_scale
-        print(f"Debug: {O}")
+        ctx.softmax_scale = softmax_scale
         return O
     
     @staticmethod
