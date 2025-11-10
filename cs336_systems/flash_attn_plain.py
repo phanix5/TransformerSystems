@@ -77,8 +77,8 @@ class FlashAttention(torch.autograd.Function):
         dS = P * (dP - D)
 
         dQ = ctx.softmax_scale * einsum(dS, K, "... q k, ... k d -> ... q d")
-        print(f"Debug dV: {dQ}")
         dK = ctx.softmax_scale * einsum(dS, Q, "... q k, ... q d -> ... k d")
+        print(f"Debug dV: {dK}")
 
         # Gradients must match forward inputs order: Q, K, V, is_causal
         return dQ, dK, dV, None
