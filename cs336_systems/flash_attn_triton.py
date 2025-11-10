@@ -451,7 +451,6 @@ def _attn_bwd_dq(
     dO_block = tl.load(dO + offs_q[:, None] * HEAD_DIM + offs_dim[None, :])
 
     L_block = tl.load(L + offs_q)
-    L_block = L_block[:, None]
 
     offs_kv = tl.arange(0, BLOCK_KV)
 
@@ -472,7 +471,7 @@ def _attn_bwd_dq(
         # Calculate P
 
         QK_block = softmax_scale * tl.dot(Q_block, Kt_block)
-        P_block = tl.math.exp(QK_block - L_block) # BLOCK_Q x BLOCK_KV
+        P_block = tl.math.exp(QK_block - L_block[:, None]) # BLOCK_Q x BLOCK_KV
 
         if STAGE == 3:
             mask_block = (
