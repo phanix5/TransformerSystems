@@ -302,14 +302,14 @@ def _attn_bwd_preprocess(
 
     O_block = tl.load(
         O
-        + index_batch * SEQ_LEN
+        + index_batch * SEQ_LEN * HEAD_DIM
         + offs_q[:, None] * HEAD_DIM
         + offs_dim[None, :]
     ) # (BLOCK_SIZE, HEAD_DIM)
 
     dO_block = tl.load(
         dO
-        + index_batch * SEQ_LEN
+        + index_batch * SEQ_LEN * HEAD_DIM
         + offs_q[:, None] * HEAD_DIM
         + offs_dim[None, :]
     ) # (BLOCK_SIZE, HEAD_DIM)
