@@ -570,8 +570,6 @@ class TritonAttention(torch.autograd.Function):
             num_stages=NUM_STAGES
         )
 
-        print(f"Debug Triton dV: {dV}")
-
         _attn_bwd_dq[grid](
             Q, K, V,
             ctx.softmax_scale,
@@ -585,6 +583,8 @@ class TritonAttention(torch.autograd.Function):
             num_warps=NUM_WARPS,
             num_stages=NUM_STAGES
         )
+
+        print(f"Debug Triton dQ: {dQ}")
 
         return dQ, dK, dV, None
 
