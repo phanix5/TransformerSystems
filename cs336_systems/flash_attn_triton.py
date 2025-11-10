@@ -475,7 +475,7 @@ def _attn_bwd_dq(
 
         if STAGE == 3:
             mask_block = (
-                offs_q[:, None] <= offs_kv[None, :]
+                offs_q[:, None] >= offs_kv[None, :]
             )
             P_block = tl.where(mask_block, P_block, 0.0)
         
