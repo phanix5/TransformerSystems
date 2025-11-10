@@ -137,7 +137,7 @@ def test_forward_pytorch_and_triton_same_input_no_assertions():
     reason="A GPU must be available to run Triton kernels",
 )
 def test_backward_pytorch_and_triton_same_input_no_assertions():
-    q, k, v, do = _make_attn_inputs_small(device="cuda")
+    q, k, v, do = _make_attn_inputs(device="cuda")
     pytorch_impl = get_flashattention_autograd_function_pytorch().apply
     triton_impl = get_flashattention_autograd_function_triton().apply
 
