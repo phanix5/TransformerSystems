@@ -351,7 +351,7 @@ def _attn_bwd_dk_dv(
 
     index_block_kv = tl.program_id(0)
     start_kv = index_block_kv * BLOCK_KV
-    offs_kv = start_kv + tl.arange(BLOCK_KV)
+    offs_kv = start_kv + tl.arange(0, BLOCK_KV)
     offs_dim = tl.arange(0, HEAD_DIM)
 
     K_block = tl.load(K + offs_kv[:, None] * HEAD_DIM + offs_dim[None, :])
