@@ -386,15 +386,15 @@ def _attn_bwd_dk_dv(
             )
             Pt_block = tl.where(mask_block, Pt_block, 0.0)
         
-        dV_block += tl.dot(Pt_block, dO_block).to(tl.float16)
+        dV_block += tl.dot(Pt_block, dO_block)
         Di = tl.load(D + offs_q)
 
         # Calculate V_j * dO_i^T
-        dpT_block = tl.dot(V_block, tl.trans(dO_block)).to(tl.float32)
+        dpT_block = tl.dot(V_block, tl.trans(dO_block))
         
         
         dST_block = Pt_block * (dpT_block - Di[None, :])
-        dST_block = dST_block.to(tl.float16)
+        dST_block = dST_block
 
         dK_block += softmax_scale * tl.dot(dST_block, tl.trans(qT_block))
 
@@ -480,10 +480,10 @@ def _attn_bwd_dq(
             )
             P_block = tl.where(mask_block, P_block, 0.0)
         
-        dp_block = tl.dot(dO_block, Vt_block).to(tl.float32) # BLOCK_Q x BLOCK_KV
+        dp_block = tl.dot(dO_block, Vt_block) # BLOCK_Q x BLOCK_KV
 
         dS_block = P_block * (dp_block - Di[:, None])
-        dS_block = dS_block.to(tl.float16)
+        dS_block = dS_block
 
         dQ_block += softmax_scale*tl.dot(dS_block, tl.trans(Kt_block))
 
