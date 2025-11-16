@@ -5,6 +5,7 @@ from typing import Callable, Optional
 import torch
 import pandas as pd
 import triton.testing as ttesting
+import traceback
 
 from cs336_systems.flash_attn_triton import TritonAttention as FlashAttentionTriton
 
@@ -99,6 +100,7 @@ def run_one_config(
     *,
     warmup: int,
     rep: int,
+    debug_exceptions: bool,
 ) -> BenchResult:
     # Batch size is always 1
     q = torch.randn(1, seq_len, d_model, device=device, dtype=dtype)
@@ -121,16 +123,25 @@ def run_one_config(
     try:
         triton_fwd_ms = _bench_forward(triton_apply, q, k, v, warmup=warmup, rep=rep)
     except Exception:
+        if debug_exceptions:
+            print("[DEBUG] Triton forward failed:")
+            traceback.print_exc()
         triton_status = "error_fwd"
     if triton_status == "ok":
         try:
             triton_bwd_ms = _bench_backward_only(triton_apply, q, k, v, warmup=warmup, rep=rep)
         except Exception:
+            if debug_exceptions:
+                print("[DEBUG] Triton backward failed:")
+                traceback.print_exc()
             triton_status = "error_bwd"
     if triton_status == "ok":
         try:
             triton_fwbw_ms = _bench_fwd_bwd(triton_apply, q, k, v, warmup=warmup, rep=rep)
         except Exception:
+            if debug_exceptions:
+                print("[DEBUG] Triton forward+backward failed:")
+                traceback.print_exc()
             triton_status = "error_fwbw"
 
     # PyTorch measurements
@@ -141,8 +152,14 @@ def run_one_config(
             torch_status = "oom_fwd"
         else:
             torch_status = "error_fwd"
+        if debug_exceptions:
+            print("[DEBUG] Torch forward failed:")
+            traceback.print_exc()
     except Exception:
         torch_status = "error_fwd"
+        if debug_exceptions:
+            print("[DEBUG] Torch forward failed:")
+            traceback.print_exc()
 
     if torch_status == "ok":
         try:
@@ -152,8 +169,14 @@ def run_one_config(
                 torch_status = "oom_bwd"
             else:
                 torch_status = "error_bwd"
+            if debug_exceptions:
+                print("[DEBUG] Torch backward failed:")
+                traceback.print_exc()
         except Exception:
             torch_status = "error_bwd"
+            if debug_exceptions:
+                print("[DEBUG] Torch backward failed:")
+                traceback.print_exc()
 
     if torch_status == "ok":
         try:
@@ -163,8 +186,14 @@ def run_one_config(
                 torch_status = "oom_fwbw"
             else:
                 torch_status = "error_fwbw"
+            if debug_exceptions:
+                print("[DEBUG] Torch forward+backward failed:")
+                traceback.print_exc()
         except Exception:
             torch_status = "error_fwbw"
+            if debug_exceptions:
+                print("[DEBUG] Torch forward+backward failed:")
+                traceback.print_exc()
 
     return BenchResult(
         triton_fwd_ms=triton_fwd_ms,
@@ -195,6 +224,7 @@ def main():
     parser.add_argument("--rep", type=int, default=256, help="Number of repetitions per timing")
     parser.add_argument("--warmup", type=int, default=25, help="Warmup iterations (do_bench handles warmup internally)")
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save the results as Markdown")
+    parser.add_argument("--debug-exceptions", action="store_true", help="Print exceptions caught during benchmarking")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -230,7 +260,7 @@ def main():
                     })
                     continue
                 try:
-                    res = run_one_config(seq_len, d_model, dtype, device, warmup=args.warmup, rep=args.rep)
+                    res = run_one_config(seq_len, d_model, dtype, device, warmup=args.warmup, rep=args.rep, debug_exceptions=args.debug_exceptions)
                     rows.append({
                         "device": str(device),
                         "precision": "bf16" if dtype == torch.bfloat16 else "fp32",
@@ -247,6 +277,9 @@ def main():
                     })
                 except RuntimeError as e:
                     status = "oom" if "out of memory" in str(e).lower() else "error"
+                    if args.debug_exceptions:
+                        print("[DEBUG] Benchmarking configuration failed:")
+                        traceback.print_exc()
                     rows.append({
                         "device": str(device),
                         "precision": "bf16" if dtype == torch.bfloat16 else "fp32",
@@ -275,7 +308,7 @@ def main():
 
     if args.to_markdown:
         with open(args.to_markdown, "w") as f:
-            f.write(df.to_markdown(index=False, float_align="right"))
+            f.write(df.to_markdown(index=False))
 
 
 if __name__ == "__main__":
