@@ -101,6 +101,7 @@ def run_one_config(
     warmup: int,
     rep: int,
     debug_exceptions: bool,
+    baseline: str,
 ) -> BenchResult:
     # Batch size is always 1
     q = torch.randn(1, seq_len, d_model, device=device, dtype=dtype)
@@ -111,7 +112,12 @@ def run_one_config(
     _synchronize_if_cuda()
 
     # Implementations
-    torch_apply = _compiled_reference_attention
+    if baseline == "plain":
+        # Lazy import to avoid dependency unless requested
+        from cs336_systems.flash_attn_plain import FlashAttention as FlashAttentionPyTorch
+        torch_apply = FlashAttentionPyTorch.apply
+    else:
+        torch_apply = _compiled_reference_attention
     triton_apply = FlashAttentionTriton.apply
 
     triton_fwd_ms = triton_bwd_ms = triton_fwbw_ms = None
@@ -225,6 +231,7 @@ def main():
     parser.add_argument("--warmup", type=int, default=25, help="Warmup iterations (do_bench handles warmup internally)")
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save the results as Markdown")
     parser.add_argument("--debug-exceptions", action="store_true", help="Print exceptions caught during benchmarking")
+    parser.add_argument("--baseline", type=str, choices=["reference", "plain"], default="plain", help="PyTorch baseline: reference (torch.compile) or plain autograd in flash_attn_plain.py")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -260,7 +267,16 @@ def main():
                     })
                     continue
                 try:
-                    res = run_one_config(seq_len, d_model, dtype, device, warmup=args.warmup, rep=args.rep, debug_exceptions=args.debug_exceptions)
+                    res = run_one_config(
+                        seq_len,
+                        d_model,
+                        dtype,
+                        device,
+                        warmup=args.warmup,
+                        rep=args.rep,
+                        debug_exceptions=args.debug_exceptions,
+                        baseline=args.baseline,
+                    )
                     rows.append({
                         "device": str(device),
                         "precision": "bf16" if dtype == torch.bfloat16 else "fp32",
