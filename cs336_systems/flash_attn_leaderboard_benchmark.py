@@ -46,7 +46,7 @@ def main():
     v = torch.randn(n_heads, seq_len, d_head, device=device, dtype=dtype, requires_grad=True)
 
     flash_apply = FlashAttentionTriton.apply
-    if not args.no-compile:
+    if not args.no_compile:
         try:
             flash_apply = torch.compile(flash_apply, fullgraph=False)  # type: ignore[attr-defined]
             compiled = True
