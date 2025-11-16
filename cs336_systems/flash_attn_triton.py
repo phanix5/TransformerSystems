@@ -140,8 +140,8 @@ def _attn_fwd(
 
     l_block = m_i + tl.log(l_i)
 
-    tl.store(o_block_pointer, o_block)
-    tl.store(l_block_pointer, l_block)
+    tl.store(o_block_pointer, o_block.to(q_block.type.element_ty))
+    tl.store(l_block_pointer, l_block.to(q_block.type.element_ty))
 
 
 @triton.jit
@@ -283,8 +283,8 @@ def _attn_fwd_causal(
 
     l_block = m_i + tl.log(l_i)
 
-    tl.store(o_block_pointer, o_block)
-    tl.store(l_block_pointer, l_block)
+    tl.store(o_block_pointer, o_block.to(q_block.type.element_ty))
+    tl.store(l_block_pointer, l_block.to(q_block.type.element_ty))
 
 @triton.jit
 def _attn_bwd_preprocess(
