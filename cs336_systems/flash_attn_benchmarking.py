@@ -102,6 +102,7 @@ def run_one_config(
     rep: int,
     debug_exceptions: bool,
     baseline: str,
+    triton_only: bool,
 ) -> BenchResult:
     # Batch size is always 1
     q = torch.randn(1, seq_len, d_model, device=device, dtype=dtype)
@@ -150,56 +151,59 @@ def run_one_config(
                 traceback.print_exc()
             triton_status = "error_fwbw"
 
-    # PyTorch measurements
-    try:
-        torch_fwd_ms = _bench_forward(torch_apply, q, k, v, warmup=warmup, rep=rep)
-    except RuntimeError as e:
-        if "out of memory" in str(e).lower():
-            torch_status = "oom_fwd"
-        else:
+    # PyTorch measurements (skip if Triton-only)
+    if triton_only:
+        torch_status = "skipped"
+    else:
+        try:
+            torch_fwd_ms = _bench_forward(torch_apply, q, k, v, warmup=warmup, rep=rep)
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                torch_status = "oom_fwd"
+            else:
+                torch_status = "error_fwd"
+            if debug_exceptions:
+                print("[DEBUG] Torch forward failed:")
+                traceback.print_exc()
+        except Exception:
             torch_status = "error_fwd"
-        if debug_exceptions:
-            print("[DEBUG] Torch forward failed:")
-            traceback.print_exc()
-    except Exception:
-        torch_status = "error_fwd"
-        if debug_exceptions:
-            print("[DEBUG] Torch forward failed:")
-            traceback.print_exc()
+            if debug_exceptions:
+                print("[DEBUG] Torch forward failed:")
+                traceback.print_exc()
 
-    if torch_status == "ok":
-        try:
-            torch_bwd_ms = _bench_backward_only(torch_apply, q, k, v, warmup=warmup, rep=rep)
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower():
-                torch_status = "oom_bwd"
-            else:
+        if torch_status == "ok":
+            try:
+                torch_bwd_ms = _bench_backward_only(torch_apply, q, k, v, warmup=warmup, rep=rep)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    torch_status = "oom_bwd"
+                else:
+                    torch_status = "error_bwd"
+                if debug_exceptions:
+                    print("[DEBUG] Torch backward failed:")
+                    traceback.print_exc()
+            except Exception:
                 torch_status = "error_bwd"
-            if debug_exceptions:
-                print("[DEBUG] Torch backward failed:")
-                traceback.print_exc()
-        except Exception:
-            torch_status = "error_bwd"
-            if debug_exceptions:
-                print("[DEBUG] Torch backward failed:")
-                traceback.print_exc()
+                if debug_exceptions:
+                    print("[DEBUG] Torch backward failed:")
+                    traceback.print_exc()
 
-    if torch_status == "ok":
-        try:
-            torch_fwbw_ms = _bench_fwd_bwd(torch_apply, q, k, v, warmup=warmup, rep=rep)
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower():
-                torch_status = "oom_fwbw"
-            else:
+        if torch_status == "ok":
+            try:
+                torch_fwbw_ms = _bench_fwd_bwd(torch_apply, q, k, v, warmup=warmup, rep=rep)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    torch_status = "oom_fwbw"
+                else:
+                    torch_status = "error_fwbw"
+                if debug_exceptions:
+                    print("[DEBUG] Torch forward+backward failed:")
+                    traceback.print_exc()
+            except Exception:
                 torch_status = "error_fwbw"
-            if debug_exceptions:
-                print("[DEBUG] Torch forward+backward failed:")
-                traceback.print_exc()
-        except Exception:
-            torch_status = "error_fwbw"
-            if debug_exceptions:
-                print("[DEBUG] Torch forward+backward failed:")
-                traceback.print_exc()
+                if debug_exceptions:
+                    print("[DEBUG] Torch forward+backward failed:")
+                    traceback.print_exc()
 
     return BenchResult(
         triton_fwd_ms=triton_fwd_ms,
@@ -232,6 +236,7 @@ def main():
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save the results as Markdown")
     parser.add_argument("--debug-exceptions", action="store_true", help="Print exceptions caught during benchmarking")
     parser.add_argument("--baseline", type=str, choices=["reference", "plain"], default="plain", help="PyTorch baseline: reference (torch.compile) or plain autograd in flash_attn_plain.py")
+    parser.add_argument("--triton-only", action="store_true", help="Only run the Triton implementation; skip PyTorch baseline")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -276,6 +281,7 @@ def main():
                         rep=args.rep,
                         debug_exceptions=args.debug_exceptions,
                         baseline=args.baseline,
+                        triton_only=args.triton_only,
                     )
                     rows.append({
                         "device": str(device),
