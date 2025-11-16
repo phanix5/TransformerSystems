@@ -26,15 +26,15 @@ def _synchronize_if_cuda():
         torch.cuda.synchronize()
 
 
-def _bench_forward(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> float:
+def _bench_forward(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, warmup: int, rep: int) -> float:
     def fn():
         with torch.inference_mode():
             _ = impl_apply(q, k, v, True)
         _synchronize_if_cuda()
-    return float(ttesting.do_bench(fn))
+    return float(ttesting.do_bench(fn, warmup=warmup, rep=rep))
 
 
-def _bench_backward_only(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> float:
+def _bench_backward_only(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, warmup: int, rep: int) -> float:
     # Build graph once, measure only backward with retain_graph=True
     q_rt = q.clone().detach().requires_grad_(True)
     k_rt = k.clone().detach().requires_grad_(True)
@@ -53,10 +53,10 @@ def _bench_backward_only(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor,
             k_rt.grad.zero_()
         if v_rt.grad is not None:
             v_rt.grad.zero_()
-    return float(ttesting.do_bench(fn))
+    return float(ttesting.do_bench(fn, warmup=warmup, rep=rep))
 
 
-def _bench_fwd_bwd(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> float:
+def _bench_fwd_bwd(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, warmup: int, rep: int) -> float:
     def fn():
         q_i = q.clone().detach().requires_grad_(True)
         k_i = k.clone().detach().requires_grad_(True)
@@ -65,7 +65,7 @@ def _bench_fwd_bwd(impl_apply: Callable, q: torch.Tensor, k: torch.Tensor, v: to
         loss = out.sum()
         loss.backward()
         _synchronize_if_cuda()
-    return float(ttesting.do_bench(fn))
+    return float(ttesting.do_bench(fn, warmup=warmup, rep=rep))
 
 
 def _reference_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, is_causal: bool = True) -> torch.Tensor:
@@ -96,6 +96,9 @@ def run_one_config(
     d_model: int,
     dtype: torch.dtype,
     device: torch.device,
+    *,
+    warmup: int,
+    rep: int,
 ) -> BenchResult:
     # Batch size is always 1
     q = torch.randn(1, seq_len, d_model, device=device, dtype=dtype)
@@ -116,23 +119,23 @@ def run_one_config(
 
     # Triton measurements
     try:
-        triton_fwd_ms = _bench_forward(triton_apply, q, k, v)
+        triton_fwd_ms = _bench_forward(triton_apply, q, k, v, warmup=warmup, rep=rep)
     except Exception:
         triton_status = "error_fwd"
     if triton_status == "ok":
         try:
-            triton_bwd_ms = _bench_backward_only(triton_apply, q, k, v)
+            triton_bwd_ms = _bench_backward_only(triton_apply, q, k, v, warmup=warmup, rep=rep)
         except Exception:
             triton_status = "error_bwd"
     if triton_status == "ok":
         try:
-            triton_fwbw_ms = _bench_fwd_bwd(triton_apply, q, k, v)
+            triton_fwbw_ms = _bench_fwd_bwd(triton_apply, q, k, v, warmup=warmup, rep=rep)
         except Exception:
             triton_status = "error_fwbw"
 
     # PyTorch measurements
     try:
-        torch_fwd_ms = _bench_forward(torch_apply, q, k, v)
+        torch_fwd_ms = _bench_forward(torch_apply, q, k, v, warmup=warmup, rep=rep)
     except RuntimeError as e:
         if "out of memory" in str(e).lower():
             torch_status = "oom_fwd"
@@ -143,7 +146,7 @@ def run_one_config(
 
     if torch_status == "ok":
         try:
-            torch_bwd_ms = _bench_backward_only(torch_apply, q, k, v)
+            torch_bwd_ms = _bench_backward_only(torch_apply, q, k, v, warmup=warmup, rep=rep)
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 torch_status = "oom_bwd"
@@ -154,7 +157,7 @@ def run_one_config(
 
     if torch_status == "ok":
         try:
-            torch_fwbw_ms = _bench_fwd_bwd(torch_apply, q, k, v)
+            torch_fwbw_ms = _bench_fwd_bwd(torch_apply, q, k, v, warmup=warmup, rep=rep)
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 torch_status = "oom_fwbw"
@@ -194,10 +197,6 @@ def main():
     parser.add_argument("--to-markdown", type=str, default=None, help="Optional path to save the results as Markdown")
     args = parser.parse_args()
 
-    # Configure do_bench defaults
-    ttesting.BENCHMARKS_DEFAULTS["rep"] = args.rep
-    ttesting.BENCHMARKS_DEFAULTS["warmup"] = args.warmup
-
     device = torch.device(args.device)
     if device.type == "cuda":
         torch.cuda.init()
@@ -231,7 +230,7 @@ def main():
                     })
                     continue
                 try:
-                    res = run_one_config(seq_len, d_model, dtype, device)
+                    res = run_one_config(seq_len, d_model, dtype, device, warmup=args.warmup, rep=args.rep)
                     rows.append({
                         "device": str(device),
                         "precision": "bf16" if dtype == torch.bfloat16 else "fp32",
