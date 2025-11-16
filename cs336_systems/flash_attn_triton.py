@@ -396,7 +396,7 @@ def _attn_bwd_dk_dv(
         dST_block = Pt_block * (dpT_block - Di[None, :])
         dST_block = dST_block
 
-        dK_block += softmax_scale * tl.dot(dST_block, tl.trans(qT_block))
+        dK_block += softmax_scale * tl.dot(dST_block.to(qT_block.type.element_ty), tl.trans(qT_block))
 
         curr_q += BLOCK_Q
         qt_ptrs += BLOCK_Q * HEAD_DIM
