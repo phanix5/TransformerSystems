@@ -328,9 +328,7 @@ def _attn_bwd_dk_dv(
     BLOCK_Q: tl.constexpr,
     BLOCK_KV: tl.constexpr,
     HEAD_DIM: tl.constexpr,
-    STAGE: tl.constexpr,
-    num_warps,
-    num_stages
+    STAGE: tl.constexpr
 ):
     index_batch = tl.program_id(2)
     offset_batch = index_batch * SEQ_LEN * HEAD_DIM
@@ -421,9 +419,7 @@ def _attn_bwd_dq(
     BLOCK_Q: tl.constexpr,
     BLOCK_KV: tl.constexpr,
     HEAD_DIM: tl.constexpr,
-    STAGE: tl.constexpr,
-    num_warps,
-    num_stages
+    STAGE: tl.constexpr
 ):
     index_batch = tl.program_id(2)
     offset_batch = index_batch * SEQ_LEN * HEAD_DIM
