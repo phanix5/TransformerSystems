@@ -148,8 +148,8 @@ def _attn_fwd(
         triton.Config(
             {"BLOCK_SIZE_Q": BLOCK_SIZE_Q, "BLOCK_SIZE_KV": BLOCK_SIZE_KV}
         )
-        for BLOCK_SIZE_Q in [32]
-        for BLOCK_SIZE_KV in [32]
+        for BLOCK_SIZE_Q in [32, 64]
+        for BLOCK_SIZE_KV in [64, 128]
     ],
     key = ["SEQ_LEN", "HEAD_DIM"]
 )
