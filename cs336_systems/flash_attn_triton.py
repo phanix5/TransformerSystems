@@ -518,7 +518,7 @@ class TritonAttention(torch.autograd.Function):
             Q, K, V, O, L,
             stride_batch, stride_sq, stride_dim, softmax_scale,
             SEQ_LEN, HEAD_DIM,
-            BLOCK_SIZE_Q=32, BLOCK_SIZE_KV=128,
+            BLOCK_SIZE_Q=32, BLOCK_SIZE_KV=32,
         )
         ctx.save_for_backward(Q, K, V, L, O)
         ctx.causal = is_causal
