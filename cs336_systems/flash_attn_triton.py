@@ -6,7 +6,16 @@ from jaxtyping import Float
 import triton.language as tl
 import math
 
-
+@triton.autotune(
+    [
+        triton.Config(
+            {"BLOCK_SIZE_Q": BLOCK_SIZE_Q, "BLOCK_SIZE_KV": BLOCK_SIZE_KV}
+        )
+        for BLOCK_SIZE_Q in [32, 64, 128]
+        for BLOCK_SIZE_KV in [32, 64, 128]
+    ],
+    key = ["SEQ_LEN", "HEAD_DIM"]
+)
 @triton.jit
 def _attn_fwd(
     Q, K, V,

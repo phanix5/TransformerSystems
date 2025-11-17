@@ -1,4 +1,6 @@
 import argparse
+import os
+os.environ.setdefault("TRITON_PRINT_AUTOTUNING", "1")
 import torch
 import triton.testing as ttesting
 
