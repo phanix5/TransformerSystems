@@ -6,16 +6,6 @@ from jaxtyping import Float
 import triton.language as tl
 import math
 
-@triton.autotune(
-    [
-        triton.Config(
-            {"BLOCK_SIZE_Q": BLOCK_SIZE_Q, "BLOCK_SIZE_KV": BLOCK_SIZE_KV}
-        )
-        for BLOCK_SIZE_Q in [32, 64, 128]
-        for BLOCK_SIZE_KV in [32, 64, 128]
-    ],
-    key = ["SEQ_LEN", "HEAD_DIM"]
-)
 @triton.jit
 def _attn_fwd(
     Q, K, V,
@@ -153,6 +143,16 @@ def _attn_fwd(
     tl.store(l_block_pointer, l_block.to(q_block.type.element_ty))
 
 
+@triton.autotune(
+    [
+        triton.Config(
+            {"BLOCK_SIZE_Q": BLOCK_SIZE_Q, "BLOCK_SIZE_KV": BLOCK_SIZE_KV}
+        )
+        for BLOCK_SIZE_Q in [32, 64, 128]
+        for BLOCK_SIZE_KV in [32, 64, 128]
+    ],
+    key = ["SEQ_LEN", "HEAD_DIM"]
+)
 @triton.jit
 def _attn_fwd_causal(
     Q, K, V,
@@ -522,12 +522,20 @@ class TritonAttention(torch.autograd.Function):
             BATCH_SIZE,
             1
         )
-        kernel = _attn_fwd_causal if is_causal else _attn_fwd
-        kernel[grid](
-            Q, K, V, O, L,
-            stride_batch, stride_sq, stride_dim, softmax_scale,
-            SEQ_LEN, HEAD_DIM
-        )
+        if is_causal:
+            _attn_fwd_causal[grid](
+                Q, K, V, O, L,
+                stride_batch, stride_sq, stride_dim, softmax_scale,
+                SEQ_LEN=SEQ_LEN, HEAD_DIM=HEAD_DIM
+            )
+        else:
+            # Provide explicit BLOCK sizes for the non-autotuned kernel
+            _attn_fwd[grid](
+                Q, K, V, O, L,
+                stride_batch, stride_sq, stride_dim, softmax_scale,
+                SEQ_LEN=SEQ_LEN, HEAD_DIM=HEAD_DIM,
+                BLOCK_SIZE_Q=64, BLOCK_SIZE_KV=64
+            )
         ctx.save_for_backward(Q, K, V, L, O)
         ctx.causal = is_causal
         ctx.softmax_scale = softmax_scale
