@@ -148,8 +148,8 @@ def _attn_fwd(
         triton.Config(
             {"BLOCK_SIZE_Q": BLOCK_SIZE_Q, "BLOCK_SIZE_KV": BLOCK_SIZE_KV}
         )
-        for BLOCK_SIZE_Q in [32]
-        for BLOCK_SIZE_KV in [32]
+        for BLOCK_SIZE_Q in [32, 64, 128]
+        for BLOCK_SIZE_KV in [32, 64, 128]
     ],
     key = ["SEQ_LEN", "HEAD_DIM"]
 )
@@ -327,17 +327,27 @@ def _attn_bwd_preprocess(
     D_block_ptrs = D + index_batch * SEQ_LEN + offs_q
     tl.store(D_block_ptrs, D_block)
 
+@triton.autotune(
+    [
+        triton.Config(
+            {"BLOCK_Q": BLOCK_SIZE_Q, "BLOCK_KV": BLOCK_SIZE_KV}
+        )
+        for BLOCK_SIZE_Q in [32, 64, 128]
+        for BLOCK_SIZE_KV in [32, 64, 128]
+    ],
+    key = ["SEQ_LEN", "HEAD_DIM", "STAGE"]
+)
 @triton.jit
 def _attn_bwd_dk_dv(
     Q, K, V,
     softmax_scale,
     dO, dQ, dK, dV,
     L, D,
-    SEQ_LEN,
-    BLOCK_Q: tl.constexpr,
-    BLOCK_KV: tl.constexpr,
+    SEQ_LEN: tl.constexpr,
     HEAD_DIM: tl.constexpr,
-    STAGE: tl.constexpr
+    STAGE: tl.constexpr,
+    BLOCK_Q: tl.constexpr,
+    BLOCK_KV: tl.constexpr
 ):
     index_batch = tl.program_id(2)
     offset_batch = index_batch * SEQ_LEN * HEAD_DIM
@@ -418,17 +428,27 @@ def _attn_bwd_dk_dv(
     tl.store(dK_block_ptrs, dK_block.to(dK.type.element_ty))
         
 
+@triton.autotune(
+    [
+        triton.Config(
+            {"BLOCK_Q": BLOCK_SIZE_Q, "BLOCK_KV": BLOCK_SIZE_KV}
+        )
+        for BLOCK_SIZE_Q in [32, 64, 128]
+        for BLOCK_SIZE_KV in [32, 64, 128]
+    ],
+    key = ["SEQ_LEN", "HEAD_DIM", "STAGE"]
+)
 @triton.jit
 def _attn_bwd_dq(
     Q, K, V,
     softmax_scale,
     dO, dQ, dK, dV,
     L, D,
-    SEQ_LEN,
-    BLOCK_Q: tl.constexpr,
-    BLOCK_KV: tl.constexpr,
+    SEQ_LEN: tl.constexpr,
     HEAD_DIM: tl.constexpr,
-    STAGE: tl.constexpr
+    STAGE: tl.constexpr,
+    BLOCK_Q: tl.constexpr,
+    BLOCK_KV: tl.constexpr
 ):
     index_batch = tl.program_id(2)
     offset_batch = index_batch * SEQ_LEN * HEAD_DIM
