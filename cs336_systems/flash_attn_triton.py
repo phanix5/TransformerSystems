@@ -332,8 +332,8 @@ def _attn_bwd_preprocess(
         triton.Config(
             {"BLOCK_Q": BLOCK_SIZE_Q, "BLOCK_KV": BLOCK_SIZE_KV}
         )
-        for BLOCK_SIZE_Q in [32, 64, 128]
-        for BLOCK_SIZE_KV in [32, 64, 128]
+        for BLOCK_SIZE_Q in [32, 64]
+        for BLOCK_SIZE_KV in [64, 128]
     ],
     key = ["SEQ_LEN", "HEAD_DIM", "STAGE"]
 )
@@ -433,8 +433,8 @@ def _attn_bwd_dk_dv(
         triton.Config(
             {"BLOCK_Q": BLOCK_SIZE_Q, "BLOCK_KV": BLOCK_SIZE_KV}
         )
-        for BLOCK_SIZE_Q in [32, 64, 128]
-        for BLOCK_SIZE_KV in [32, 64, 128]
+        for BLOCK_SIZE_Q in [64, 128]
+        for BLOCK_SIZE_KV in [32, 64]
     ],
     key = ["SEQ_LEN", "HEAD_DIM", "STAGE"]
 )
