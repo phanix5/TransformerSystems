@@ -599,9 +599,7 @@ class TritonAttention(torch.autograd.Function):
             L, D,
             SEQ_LEN,
             HEAD_DIM=HEAD_DIM,
-            STAGE=stage,
-            num_warps=NUM_WARPS,
-            num_stages=NUM_STAGES
+            STAGE=stage
         )
 
         _attn_bwd_dq[grid](
@@ -611,9 +609,7 @@ class TritonAttention(torch.autograd.Function):
             L, D,
             SEQ_LEN,
             HEAD_DIM=HEAD_DIM,
-            STAGE=stage,
-            num_warps=NUM_WARPS,
-            num_stages=NUM_STAGES
+            STAGE=stage
         )
 
         return dQ, dK, dV, None
