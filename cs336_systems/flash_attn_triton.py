@@ -539,7 +539,7 @@ class TritonAttention(torch.autograd.Function):
 
         BATCH_SIZE, SEQ_LEN, HEAD_DIM = Q.shape
         NUM_WARPS, NUM_STAGES = 4, 1
-        BLOCK_SIZE_MICRO, BLOCK_SIZE_MACRO = 32, 128
+        BLOCK_SIZE_MICRO, BLOCK_SIZE_MACRO = 32, 64
 
         preprocess_grid = (SEQ_LEN // BLOCK_SIZE_MACRO, BATCH_SIZE)
         D = torch.empty_like(L)
